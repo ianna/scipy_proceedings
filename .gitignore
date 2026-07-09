@@ -10,3 +10,18 @@ node_modules
 
 meca.zip
 full_text.pdf
+
+# Python / profiling artifacts
+__pycache__/
+*.nsys-rep
+*.sqlite
+
+# awkward-cuda-compute talk: generated build artifacts
+# (deck is rebuilt from scripts/*.py -> slides.md -> slides.pdf; figs/*.png and
+#  slides.md are kept as tracked deck content, since some figures need a GPU to regenerate)
+presentations/slides/awkward-cuda-compute/marp/slides.pdf
+presentations/slides/awkward-cuda-compute/**/*.json
+
+# awkward-cuda-compute talk: previous / reference presentations (not part of the build)
+presentations/slides/awkward-cuda-compute/*.pptx
+presentations/slides/awkward-cuda-compute/S81531.pdf
