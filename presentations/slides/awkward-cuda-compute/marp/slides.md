@@ -40,6 +40,183 @@ Ianna Osborne (Princeton) · **Ashwin Srinath** (NVIDIA) · SciPy 2026
 
 ---
 
+## Scientific Data Isn't Always Rectangular
+
+Most scientific data is naturally **irregular**.
+
+| Domain | Example |
+|---------|---------|
+| Particle Physics | Variable numbers of particles per event |
+| Genomics | Reads with different lengths |
+| JSON | Nested records |
+| Astronomy | Variable object catalogs |
+| Event Logs | Nested sessions |
+
+Example:
+
+```python
+neighbor_lists = [
+    [3, 7, 12],
+    [0, 5],
+    [1, 4, 8, 11],
+    [],
+]
+```
+
+This doesn't fit naturally into a rectangular NumPy array.
+
+---
+
+## GPUs Prefer Regular Workloads
+
+Traditional GPU algorithms assume
+
+```
+Thread 0 -> one element
+Thread 1 -> one element
+Thread 2 -> one element
+...
+```
+
+Jagged arrays break this assumption.
+
+```
+Thread 0 -> 2 values
+Thread 1 -> 0 values
+Thread 2 -> 8 values
+Thread 3 -> 1 value
+```
+
+Typical workaround:
+
+- pad arrays
+- waste memory
+- waste computation
+
+---
+
+## Awkward Array
+
+Awkward Array stores irregular data without padding.
+
+```
+Python
+
+↓
+
+Awkward Array
+
+↓
+
+Offsets
+Content
+
+↓
+
+Compact contiguous memory
+```
+
+Users still write familiar Python
+
+```python
+events.muons.pt
+```
+
+---
+
+## Representation Isn't Enough
+
+Operations such as
+
+- filtering
+- combinations
+- broadcasting
+- reductions
+
+often execute as
+
+```
+Kernel
+↓
+Global Memory
+↓
+Kernel
+↓
+Global Memory
+↓
+Kernel
+```
+
+Each step writes intermediate results back to device memory.
+
+### The bottleneck is no longer storage — it's execution.
+
+---
+
+## The Question
+
+> **Can we compile an entire Python computation into one optimized GPU program?**
+
+Instead of
+
+```
+Python
+
+↓
+
+Kernel
+
+↓
+
+Kernel
+
+↓
+
+Kernel
+```
+
+Can we build
+
+```
+Python
+
+↓
+
+One optimized kernel
+```
+
+---
+
+## From Python to CUDA
+
+```
+Python Operations
+
+↓
+
+Expression Graph
+
+↓
+
+Optimization
+
+↓
+
+cuda.compute
+
+↓
+
+Optimized CUDA Kernel
+
+↓
+
+GPU
+```
+
+Ashwin will now explain how this works.
+
+---
+
 ## What is `cuda.compute`?
 
 <div class="cols">
@@ -54,7 +231,6 @@ Ianna Osborne (Princeton) · **Ashwin Srinath** (NVIDIA) · SciPy 2026
 
 </div>
 </div>
-
 
 ---
 
@@ -673,3 +849,260 @@ expr.compute(fuse=True)      # whole chain -> ONE kernel
 
 </div>
 </div>
+
+---
+
+## Results
+
+We evaluated representative Awkward workloads:
+
+- combinatorial matching
+- nested reductions
+- filtering
+- broadcasting
+- physics analysis pipelines
+
+using
+
+- eager execution
+- fused execution
+
+---
+
+## Eager vs Fused Execution
+
+### Eager
+
+```
+Kernel
+↓
+Memory
+↓
+Kernel
+↓
+Memory
+↓
+Kernel
+```
+
+### Lazy + Fusion
+
+```
+Expression Graph
+↓
+One CUDA Kernel
+```
+
+Benefits
+
+- fewer launches
+- less global memory traffic
+- better cache locality
+
+---
+
+## Performance
+
+*(Insert benchmark figures)*
+
+Suggested plots
+
+- Runtime vs dataset size
+
+- GPU speedup
+
+- Kernel launch count
+
+- Memory traffic
+
+Key observation
+
+> Fusion becomes increasingly beneficial as workloads grow.
+
+---
+
+## Same Python API
+
+Users continue writing ordinary Python.
+
+```python
+events.muons[
+    events.muons.pt > 20
+].pt.sum()
+```
+
+No
+
+- CUDA C++
+- handwritten kernels
+- explicit memory management
+
+---
+
+## Why This Matters
+
+| Traditional CUDA | cuda.compute + Awkward |
+|------------------|------------------------|
+| C++ kernels | Python |
+| Static kernels | Runtime-generated |
+| Many launches | Kernel fusion |
+| Manual optimization | Automatic |
+
+High-performance GPU programming becomes accessible to scientific Python users.
+
+---
+
+## Conclusions
+
+- Irregular data deserves first-class GPU support.
+- Kernel fusion substantially reduces GPU overhead.
+- Users remain entirely in Python.
+- Runtime compilation enables near-C++ performance.
+
+---
+
+## Outlook
+
+Future work
+
+- More Awkward operations
+- Additional CCCL primitives
+- Multi-GPU execution
+- Distributed execution
+- Additional backends
+
+---
+
+## Thank You
+
+### Questions?
+
+Awkward Array
+
+https://github.com/scikit-hep/awkward
+
+https://awkward-array.org
+
+---
+
+# Slide examples & figures — lazy execution / kernel fusion
+
+Every snippet below is copy-run verified against the branch (CPU shown so it runs
+anywhere; swap `ak.cpu.lazy` → `ak.cuda.lazy` for the GPU story). Figures are
+generated from the measured benchmark by `make_slide_figs.py`.
+
+---
+
+## Example 1 — "What is next: lazy execution" (headline)
+
+A chain of ordinary element-wise operations, fused into a single kernel.
+
+```python
+import awkward as ak
+
+arr = ak.Array([[1.0, 2, 3], [4, 5], [6, 7, 8, 9]], backend="cuda")
+la  = ak.cuda.lazy(arr)          # wrap: nothing runs yet
+
+expr = la                        # a chain, written normally
+for _ in range(16):
+    expr = expr * 1.001 + 0.5    # 32 element-wise ops
+
+expr.fusion_stats()
+# -> {'elementwise_before': 32, 'fused_regions': 1, ...}   32 ops -> ONE kernel
+
+expr.compute(fuse=True)          # runs the single fused kernel
+```
+
+Talking point: **32 element-wise ops → 1 fused region → 1 GPU kernel**, and (fig
+below) up to **~90× faster** than eager, with fused time nearly flat as the chain
+grows.
+
+---
+
+## Example 2 — introspection: see the fused plan
+
+`fusion_stats()` and `visualize(fused=True)` make the compiler's decision visible
+— good for a "how it works" slide.
+
+```python
+la = ak.cuda.lazy(arr)
+t  = la * 2 + 1
+pipeline = t.filter(t > 5)
+
+pipeline.fusion_stats()
+# -> {'elementwise_before': 3, 'fused_regions': 2, 'materialized': 7}
+
+print(pipeline.visualize(fused=True))
+# FilterNode(op=filter)
+#   Input:
+#     FusedNode(leaves=3, expr='(($0 * $1) + $2)')      <- scale+shift, one kernel
+#   Condition/Mask:
+#     FusedNode(leaves=2, expr='($0 > $1)')             <- compare, one kernel
+```
+
+Talking point: fusion collapses the element-wise regions; the structural `filter`
+stays a boundary. The shared `t = la*2+1` is computed **once** and reused by both
+the filter input and the condition (single-use fusion = free CSE).
+
+---
+
+## Example 3 — fusion is transparent (debug mode)
+
+`fuse=True` (default) and `fuse=False` are numerically identical; the no-fuse
+path keeps every intermediate visible for debugging.
+
+```python
+expr = (ak.cuda.lazy(arr) * 2 + 1) * 3
+
+expr.compute(fuse=True)    # one fused kernel
+expr.compute(fuse=False)   # per-op interpreter — identical result
+# both -> [[9, 15, 21], [27, 33], [39, 45, 51, 57]]
+```
+
+Talking point: fusion is a fast path, never a correctness dependency — anything it
+can't fuse (strings, regular/indexed layouts, mixed backends) falls back to the
+eager path automatically, with the same answer.
+
+---
+
+## Example 4 — transform + reduction in one kernel
+
+The map fuses *into* the reduction — no intermediate buffer (this is what the
+"parents → offsets → segmented_reduce" slide sets up).
+
+```python
+la = ak.cuda.lazy(arr)
+total = (la * 2 + 1).sum()      # per-sublist sum of the scaled values
+total.compute(fuse=True)        # folded map -> segmented_reduce, one kernel
+```
+
+Talking point (fig `lazy_fusion_reduce.png`): the folded-op reduction stays flat
+at ~0.18 ms as the map grows, while separate map+reduce scales with chain length.
+
+---
+
+## Figures (generated by `make_slide_figs.py`, measured on A100 + CPU)
+
+| File | Use it for |
+|------|-----------|
+| `figs/lazy_fusion_flat_time.png` | **The money slide.** Eager time rises linearly (2→34 ms); fused time is flat (~0.4 ms). "That flat line *is* fusion." |
+| `figs/lazy_fusion_speedup.png` | Speedup vs chain length: GPU up to **~90×** and size-independent; CPU 2–8× (dispatch- vs bandwidth-bound). |
+| `figs/lazy_fusion_kernels.png` | nsys-verified launch count: **N element-wise ops → 1** fused kernel. |
+| `figs/lazy_fusion_reduce.png` | Transform + `sum` fused into one kernel; folded op stays flat. |
+
+Measured source data: `bench_lazy_fusion_results.md` (della A100) and `bench.json`
+(CPU). Regenerate with:
+
+```bash
+python studies/cccl/make_slide_figs.py
+```
+
+---
+
+## Numbers to quote (all measured, all in-repo)
+
+- **32 op chain → 1 kernel** (`fusion_stats`, nsys `cuda_gpu_kern_sum`).
+- **~90× on A100** at depth-16 (`bench_lazy_fusion_results.md`: 90.68× / 89.98×).
+- **Fused time flat**: 0.19 ms (2 ops) → 0.38 ms (32 ops); eager 2.2 → 34 ms.
+- **Size-independent on GPU** (200k and 2M speedups coincide); CPU win shrinks
+  with size (8.4× → 2.9×) because CPU is dispatch-bound, GPU is launch-bound.
