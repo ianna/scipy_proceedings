@@ -35,187 +35,353 @@ style: |
 
 # GPU-Accelerated Awkward Arrays with CUDA Python
 
+## How do you compile high-level Python operations on irregular data into efficient GPU kernels?
+
 Ianna Osborne (Princeton) · **Ashwin Srinath** (NVIDIA) · SciPy 2026
 
+---
+
+## Scientific data isn't rectangular
+
+<div class="cols">
+<div>
+
+<span class="cur">NumPy</span>
+
+```text
+● ● ● □ □
+● □ □ □ □
+● ● ● ● ●
+```
+
+❌ Padding
+
+</div>
+<div>
+
+<span class="cur">Awkward Array</span>
+
+```text
+● ● ●
+●
+● ● ● ● ●
+```
+
+✅ No padding
+
+</div>
+</div>
+
+<center>
+
+**Same data. Different representation.**
+
+</center>
 
 ---
 
-## Scientific Data Isn't Always Rectangular
+## GPUs prefer regular work
 
-Most scientific data is naturally **irregular**.
+<div class="cols">
+<div>
 
-| Domain | Example |
-|---------|---------|
-| Particle Physics | Variable numbers of particles per event |
-| Genomics | Reads with different lengths |
-| JSON | Nested records |
-| Astronomy | Variable object catalogs |
-| Event Logs | Nested sessions |
-
-Example:
-
-```python
-neighbor_lists = [
-    [3, 7, 12],
-    [0, 5],
-    [1, 4, 8, 11],
-    [],
-]
-```
-
-This doesn't fit naturally into a rectangular NumPy array.
-
----
-
-## GPUs Prefer Regular Workloads
-
-Traditional GPU algorithms assume
+<span class="cur">Traditional GPU algorithms assume</span>
 
 ```
-Thread 0 -> one element
-Thread 1 -> one element
-Thread 2 -> one element
+□□□□□
+□□□□□
+□□□□□
 ...
 ```
 
-Jagged arrays break this assumption.
+</div>
+<div>
+
+<span class="cur">Jagged arrays break this assumption</span>
 
 ```
-Thread 0 -> 2 values
-Thread 1 -> 0 values
-Thread 2 -> 8 values
-Thread 3 -> 1 value
+□□□
+□
+□□□□□□
+□□
+...
 ```
 
-Typical workaround:
+</div>
+</div>
 
-- pad arrays
-- waste memory
-- waste computation
+<center>
+
+**Uneven work per thread limits GPU efficiency.**
+
+</center>
 
 ---
 
-## Awkward Array
+![w:760](figs/awkward_array.png)
 
-Awkward Array stores irregular data without padding.
+---
 
-```
-Python
+## Storage solved
 
-↓
+<style>
+.pipeline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 12px;
+}
 
-Awkward Array
+.python {
+  width: 360px;
+  padding: 10px 14px;
+  border: 2px solid #4f8edc;
+  border-radius: 10px;
+  background: #eef6ff;
+  text-align: center;
+}
 
-↓
+.python pre {
+  margin: 0;
+  font-size: 24px;
+}
 
-Offsets
-Content
+.arrow {
+  margin: 4px 0;
+  font-size: 34px;
+  line-height: 1;
+  color: #666;
+}
 
-↓
+.storage {
+  width: 860px;
+  padding: 16px 24px 10px 24px;
+  border: 2px solid #666;
+  border-radius: 12px;
+  background: white;
+}
 
-Compact contiguous memory
-```
+.label {
+  margin: 4px 0 8px 0;
+  text-align: center;
+  font-size: 21px;
+  font-weight: 700;
+  color: #444;
+}
 
-Users still write familiar Python
+.memory {
+  margin: 0 auto 14px auto;
+  border-collapse: collapse;
+}
+
+.memory td {
+  width: 96px;
+  height: 48px;
+  border: 2px solid #4f8edc;
+  background: #eef6ff;
+  text-align: center;
+  vertical-align: middle;
+  font-size: 21px;
+  font-weight: 700;
+}
+
+.offsets td {
+  width: 68px;
+  border-color: #4caf50;
+  background: #eef9ee;
+}
+
+.guides {
+  display: grid;
+  grid-template-columns: repeat(6, 96px);
+  justify-content: center;
+  margin: -4px auto 4px auto;
+  font-size: 17px;
+  color: #58717a;
+}
+
+.guides span {
+  text-align: left;
+}
+
+.guides .g0 { grid-column: 1; }
+.guides .g3 { grid-column: 4; }
+.guides .g4 { grid-column: 5; }
+.guides .g6 {
+  grid-column: 6;
+  text-align: right;
+}
+
+.takeaway {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 25px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: #2e7d32;
+}
+</style>
+
+<div class="pipeline">
+
+<div class="python fragment">
 
 ```python
 events.muons.pt
 ```
+</div>
+<div class="arrow fragment">↓</div>
+<div class="storage">
+<div class="fragment">
+<div class="guides fragment">
+<span class="g0">0 ↓</span>
+<span class="g3">3 ↓</span>
+<span class="g4">4 ↓</span>
+<span class="g6">6 ↓</span>
+</div>
+<div class="label">content — Muon p<sub>T</sub> [GeV]</div>
+<table class="memory"> 
+<tr> 
+<td>18.7</td> 
+<td>42.1</td> 
+<td>27.5</td> 
+<td>11.3</td> 
+<td>63.8</td> 
+<td>34.2</td> 
+</tr> 
+</table> 
+</div>
+<div class="fragment">
+<div class="label">offsets</div>
+<table class="memory offsets"> 
+<tr> <td>0</td> <td>3</td> <td>4</td> <td>6</td> </tr>
+</table>
+</div>
+</div>
+<div class="arrow fragment">↓</div>
+<div class="takeaway fragment"> ✓ No padding<br> ✓ Compact contiguous memory </div>
+</div>
+
 
 ---
 
-## Representation Isn't Enough
+## But execution...
 
-Operations such as
+<div class="pipeline">
 
-- filtering
-- combinations
-- broadcasting
-- reductions
+<div class="step fragment">
+  <div class="box kernel">Kernel</div>
+  <div class="arrow">↓</div>
+</div>
 
-often execute as
+<div class="step fragment">
+  <div class="box memory">Global memory</div>
+  <div class="arrow">↓</div>
+</div>
 
-```
-Kernel
-↓
-Global Memory
-↓
-Kernel
-↓
-Global Memory
-↓
-Kernel
-```
+<div class="step fragment">
+  <div class="box kernel">Kernel</div>
+  <div class="arrow">↓</div>
+</div>
 
-Each step writes intermediate results back to device memory.
+<div class="step fragment">
+  <div class="box memory">Global memory</div>
+</div>
 
-### The bottleneck is no longer storage — it's execution.
+</div>
+
+<div class="takeaway fragment">
+
+> **Intermediate arrays increase memory traffic and dominate runtime.**
+
+</div>
+
+<style>
+.pipeline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 28px;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.box {
+  width: 280px;
+  padding: 14px 20px;
+  border-radius: 10px;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.kernel {
+  background: #eaf4d8;
+  border: 2px solid #76b900;
+  color: #17303a;
+}
+
+.memory {
+  background: #eef3f5;
+  border: 2px solid #9fb3bb;
+  color: #17303a;
+}
+
+.arrow {
+  font-size: 34px;
+  line-height: 1;
+  margin: 6px 0;
+  color: #58717a;
+}
+
+.takeaway {
+  margin-top: 30px;
+  text-align: center;
+  font-size: 28px;
+}
+</style>
+
+---
+
+<!-- _class: challenge -->
+
+## The challenge
+
+<div class="challenge-question">
+
+Can we compile an entire Awkward computation  
+into one optimized GPU program?
+
+</div>
+
+<style>
+section.challenge {
+  display: flex;
+  flex-direction: column;
+  justify-content: center !important;
+  align-items: center;
+  text-align: center;
+}
+
+section.challenge h1 {
+  margin-bottom: 48px;
+}
+
+.challenge-question {
+  max-width: 980px;
+  font-size: 42px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: #123f4d;
+}
+</style>
 
 ---
 
-## The Question
-
-> **Can we compile an entire Python computation into one optimized GPU program?**
-
-Instead of
-
-```
-Python
-
-↓
-
-Kernel
-
-↓
-
-Kernel
-
-↓
-
-Kernel
-```
-
-Can we build
-
-```
-Python
-
-↓
-
-One optimized kernel
-```
-
----
-
-## From Python to CUDA
-
-```
-Python Operations
-
-↓
-
-Expression Graph
-
-↓
-
-Optimization
-
-↓
-
-cuda.compute
-
-↓
-
-Optimized CUDA Kernel
-
-↓
-
-GPU
-```
-
-Ashwin will now explain how this works.
-
----
 
 ## What is `cuda.compute`?
 
@@ -852,24 +1018,80 @@ expr.compute(fuse=True)      # whole chain -> ONE kernel
 
 ---
 
-## Results
+## Awkward Array: present and future
 
-We evaluated representative Awkward workloads:
+<div class="cols">
+<div>
 
-- combinatorial matching
-- nested reductions
-- filtering
-- broadcasting
-- physics analysis pipelines
+- <span class="past">**85% of CUDA kernels** ported from CUDA C++ to pure Python</span>
+- <span class="past">**From `parents` to `offsets`**: the ragged layout maps straight onto segmented algorithms</span>
+- <span class="past">**Awkward on CUDA is now even faster**</span>
+- <span class="past">**What is next: lazy execution**</span>
+    - <span class="cur">The map fuses into the reduction — no intermediate buffer</span>
 
-using
+</div>
+<div>
 
-- eager execution
-- fused execution
+![w:880](figs/lazy_fusion_flat_time.png)
+
+<div class="note">Eager time rises linearly (2→34 ms); fused time is flat (~0.4 ms). <b>"That flat line is fusion."</b></div>
+
+</div>
+</div>
+
+---
+
+## Awkward Array: present and future
+
+<div class="cols">
+<div>
+
+- <span class="past">**85% of CUDA kernels** ported from CUDA C++ to pure Python</span>
+- <span class="past">**From `parents` to `offsets`**: the ragged layout maps straight onto segmented algorithms</span>
+- <span class="past">**Awkward on CUDA is now even faster**</span>
+- <span class="past">**What is next: lazy execution**</span>
+    - <span class="past">The map fuses into the reduction — no intermediate buffer</span>
+    - <span class="cur">GPU dispatch- vs CPU bandwidth-bound</span>
+
+</div>
+<div>
+
+![w:880](figs/lazy_fusion_speedup.png)
+
+<div class="note">GPU up to ~90× and size-independent; CPU 2–8×</div>
+
+</div>
+</div>
+
+---
+
+## Awkward Array: present and future
+
+<div class="cols">
+<div>
+
+- <span class="past">**85% of CUDA kernels** ported from CUDA C++ to pure Python</span>
+- <span class="past">**From `parents` to `offsets`**: the ragged layout maps straight onto segmented algorithms</span>
+- <span class="past">**Awkward on CUDA is now even faster**</span>
+- <span class="past">**What is next: lazy execution**</span>
+    - <span class="past">The map fuses into the reduction — no intermediate buffer</span>
+    - <span class="past">GPU dispatch- vs CPU bandwidth-bound</span>
+    - <span class="cur">Transform + `sum` fused into one kernel; folded op stays flat</span>
+
+</div>
+<div>
+
+![w:880](figs/lazy_fusion_reduce.png)
+
+</div>
+</div>
 
 ---
 
 ## Eager vs Fused Execution
+
+<div class="cols">
+<div>
 
 ### Eager
 
@@ -893,11 +1115,19 @@ Expression Graph
 One CUDA Kernel
 ```
 
-Benefits
+- <span class="cur">fewer launches</span>
+- <span class="cur">less global memory traffic</span>
+- <span class="cur">better cache locality</span>
 
-- fewer launches
-- less global memory traffic
-- better cache locality
+</div>
+<div>
+
+![w:880](figs/lazy_fusion_kernels.png)
+
+<div class="note">nsys-verified launch count: N element-wise ops → 1 fused kernel.</div>
+
+</div>
+</div>
 
 ---
 
@@ -1059,6 +1289,8 @@ expr.compute(fuse=False)   # per-op interpreter — identical result
 # both -> [[9, 15, 21], [27, 33], [39, 45, 51, 57]]
 ```
 
+lazy_fusion_reduce.png
+
 Talking point: fusion is a fast path, never a correctness dependency — anything it
 can't fuse (strings, regular/indexed layouts, mixed backends) falls back to the
 eager path automatically, with the same answer.
@@ -1075,6 +1307,10 @@ la = ak.cuda.lazy(arr)
 total = (la * 2 + 1).sum()      # per-sublist sum of the scaled values
 total.compute(fuse=True)        # folded map -> segmented_reduce, one kernel
 ```
+<div>
+
+![w:880](figs/lazy_fusion_reduce.png)
+</div>
 
 Talking point (fig `lazy_fusion_reduce.png`): the folded-op reduction stays flat
 at ~0.18 ms as the map grows, while separate map+reduce scales with chain length.
@@ -1106,3 +1342,23 @@ python studies/cccl/make_slide_figs.py
 - **Fused time flat**: 0.19 ms (2 ops) → 0.38 ms (32 ops); eager 2.2 → 34 ms.
 - **Size-independent on GPU** (200k and 2M speedups coincide); CPU win shrinks
   with size (8.4× → 2.9×) because CPU is dispatch-bound, GPU is launch-bound.
+
+---
+
+## Results
+
+
+We evaluated representative Awkward workloads:
+
+- combinatorial matching
+- nested reductions
+- filtering
+- broadcasting
+- physics analysis pipelines
+
+using
+
+- eager execution
+- fused execution
+
+---
