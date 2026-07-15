@@ -46,6 +46,10 @@ Ianna Osborne (Princeton) · **Ashwin Srinath** (NVIDIA) · SciPy 2026
 
 ## Scientific data isn't rectangular
 
+<style scoped>
+.cols > div { display: flex; flex-direction: column; justify-content: center; }
+</style>
+
 <div class="cols">
 <div>
 
@@ -85,12 +89,18 @@ Ianna Osborne (Princeton) · **Ashwin Srinath** (NVIDIA) · SciPy 2026
 
 ## GPUs prefer regular work
 
+<style scoped>
+.cols > div { display: flex; flex-direction: column; justify-content: center; }
+.cols pre code { line-height: 1.6; letter-spacing: 3px; }
+</style>
+
 <div class="cols">
 <div>
 
 <span class="cur">Traditional GPU algorithms assume</span>
 
 ```
+□□□□□
 □□□□□
 □□□□□
 □□□□□
@@ -120,6 +130,12 @@ Ianna Osborne (Princeton) · **Ashwin Srinath** (NVIDIA) · SciPy 2026
 </center>
 
 ---
+
+## Awkward Array
+
+<style scoped>
+img { display: block; margin: auto; }
+</style>
 
 ![w:760](figs/awkward_array.png)
 
@@ -947,7 +963,7 @@ binary_transform(d_in1=muons1, d_in2=muons2,
 - 114 kernels use **cuda.compute**
 - Remaining **17 kernels are already implemented**
 
-<div class="note"> Maxym Naumchyk</div>
+<div style="font-size: 20px; color: #4c8c00">Maxym Naumchyk</div>
 
 </div>
 </div>
@@ -966,9 +982,9 @@ binary_transform(d_in1=muons1, d_in2=muons2,
 </div>
 <div>
 
-![w:640](figs/layout.png)
+![w:640](figs/cpu_speedup_4056.png)
 
-<div class="note">the same <code>offsets</code> layout that maps ragged data onto GPU segmented algorithms also sped up Awkward's CPU reducers by about <b>4x</b> (awkward #4056)</div>
+<div class="note">the same <code>offsets</code> layout that maps ragged data onto GPU segmented algorithms also sped up Awkward's CPU kernels — <b>geomean 5× faster, 3.2× leaner</b> (awkward #4056)</div>
 
 </div>
 </div>
@@ -1102,7 +1118,17 @@ expr.compute(fuse=True)      # whole chain -> ONE kernel
 
 ## Eager vs Fused Execution
 
-<div class="cols">
+<style scoped>
+.diagrams { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; align-items: start; flex: 0 0 auto; }
+.diagrams pre { font-size: 17px; }
+.diagrams h3 { margin: 0 0 4px 0; color: #013243; }
+.bottom { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 34px; align-items: center; flex: 1 1 auto; margin-top: 10px; }
+.bottom > div:last-child { display: flex; flex-direction: column; justify-content: flex-start; }
+.bottom ul { margin: 0; }
+.bottom li { margin: 12px 0; }
+</style>
+
+<div class="diagrams">
 <div>
 
 ### Eager
@@ -1119,6 +1145,9 @@ Memory
 Kernel
 ```
 
+</div>
+<div>
+
 ### Lazy + Fusion
 
 ```
@@ -1127,16 +1156,101 @@ Expression Graph
 One CUDA Kernel
 ```
 
+</div>
+</div>
+
+<div class="bottom">
+<div>
+
+![w:760](figs/lazy_fusion_kernels.png)
+
+<div class="note">nsys-verified launch count: N element-wise ops → 1 fused kernel.</div>
+
+</div>
+<div>
+
 - <span class="cur">fewer launches</span>
 - <span class="cur">less global memory traffic</span>
 - <span class="cur">better cache locality</span>
 
 </div>
+</div>
+
+---
+
+## How it works
+
+<div class="cols">
 <div>
 
-![w:880](figs/lazy_fusion_kernels.png)
+- <span class="cur">**Introspection**: `fusion_stats()` and `visualize(fused=True)` make the compiler's decision visible</span>
 
-<div class="note">nsys-verified launch count: N element-wise ops → 1 fused kernel.</div>
+</div>
+<div>
+
+```python
+la = ak.cuda.lazy(arr)
+t  = la * 2 + 1
+pipeline = t.filter(t > 5)
+
+pipeline.fusion_stats()
+# -> {'elementwise_before': 3, 'fused_regions': 2, 'materialized': 7}
+
+print(pipeline.visualize(fused=True))
+# FilterNode(op=filter)
+#   Input:
+#     FusedNode(leaves=3, expr='(($0 * $1) + $2)')      <- scale+shift, one kernel
+#   Condition/Mask:
+#     FusedNode(leaves=2, expr='($0 > $1)')             <- compare, one kernel
+```
+
+<div class="note" style="margin-top:14px">Fusion collapses the element-wise regions; the structural <code>filter</code> stays a boundary. The shared <code>t = la*2+1</code> is computed <b>once</b> and reused by both the filter input and the condition (single-use fusion = free CSE).</div>
+
+</div>
+</div>
+
+---
+
+## How it works
+
+<div class="cols">
+<div>
+
+- <span class="past">**Introspection**: `fusion_stats()` and `visualize(fused=True)` make the compiler's decision visible</span>
+- <span class="cur">**Transparent (debug mode)**: `fuse=True` (default) and `fuse=False` are numerically identical; the no-fuse path keeps every intermediate visible for debugging</span>
+
+</div>
+<div>
+
+```python
+expr = (ak.cuda.lazy(arr) * 2 + 1) * 3
+
+expr.compute(fuse=True)    # one fused kernel
+expr.compute(fuse=False)   # per-op interpreter — identical result
+# both -> [[9, 15, 21], [27, 33], [39, 45, 51, 57]]
+```
+
+<div class="note" style="margin-top:14px">Fusion is a fast path, never a correctness dependency — anything it can't fuse (strings, regular/indexed layouts, mixed backends) falls back to the eager path automatically, with the same answer.</div>
+
+</div>
+</div>
+
+
+---
+
+## Performance
+
+<div class="cols">
+<div>
+
+- <span class="cur">Runtime vs dataset size</span>
+
+</div>
+<div>
+
+![w:600](figs/lazy_ir_runtime_vs_size.png)
+
+<div class="note">Eager runtime grows with the dataset — each op is a separate kernel and memory pass. The fused path stays far lower and flatter: the whole chain runs as one kernel, so the gap widens as data grows.</div>
 
 </div>
 </div>
@@ -1145,43 +1259,66 @@ One CUDA Kernel
 
 ## Performance
 
+<div class="cols">
+<div>
 
-- Runtime vs dataset size ![w:880](figs/lazy_ir_runtime_vs_size.png)
+- <span class="past">Runtime vs dataset size</span>
+- <span class="cur">GPU speedup</span>
 
+</div>
+<div>
 
----
+![w:600](figs/lazy_ir_gpu_speedup.png)
 
-## Performance
+<div class="note">Speedup over the eager path climbs with dataset size and then plateaus — once the GPU is saturated, fusion's win is size-independent (dispatch-bound, not bandwidth-bound).</div>
 
-- Runtime vs dataset size 
-
-- GPU speedup ![w:880](figs/lazy_ir_gpu_speedup.png)
-
----
-
-## Performance
-
-- Runtime vs dataset size 
-
-- GPU speedup 
-
-- Kernel launch count ![w:880](figs/lazy_ir_kernel_launches.png)
+</div>
+</div>
 
 ---
 
 ## Performance
 
-- Runtime vs dataset size 
+<div class="cols">
+<div>
 
-- GPU speedup 
+- <span class="past">Runtime vs dataset size</span>
+- <span class="past">GPU speedup</span>
+- <span class="cur">Kernel launch count</span>
 
-- Kernel launch count 
+</div>
+<div>
 
-- Memory traffic ![w:880](figs/lazy_ir_memory_traffic.png)
+![w:600](figs/lazy_ir_kernel_launches.png)
 
-Key observation
+<div class="note">The eager path launches one kernel per op, so the count rises with chain length; fusion collapses the whole chain to a single launch — the source of both the speedup and the lower overhead.</div>
 
-> Fusion becomes increasingly beneficial as workloads grow.
+</div>
+</div>
+
+---
+
+## Performance
+
+<div class="cols">
+<div>
+
+- <span class="past">Runtime vs dataset size</span>
+- <span class="past">GPU speedup</span>
+- <span class="past">Kernel launch count</span>
+- <span class="cur">Memory traffic</span>
+
+<div class="note" style="margin-top:22px"><b>Key observation:</b> fusion becomes increasingly beneficial as workloads grow.</div>
+
+</div>
+<div>
+
+![w:600](figs/lazy_ir_memory_traffic.png)
+
+<div class="note">Eager writes every intermediate back to global memory and reads it again; fusion keeps intermediates in registers, so total bytes moved stays flat as the chain grows.</div>
+
+</div>
+</div>
 
 
 ---
@@ -1279,62 +1416,14 @@ https://github.com/scikit-hep/awkward
 
 https://awkward-array.org
 
-This work was supported in part by the U.S. National Science Foundation through IRIS-HEP (NSF OAC-1836650, OAC-1450377, OAC-2103945, PHY-2121686, PHY-2323298)
+<div style="display:flex; align-items:center; gap:34px; margin-top:16px;">
+<img src="figs/IRIS-HEP logo.png" height="56" />
+<img src="figs/Princeton logo.png" height="40" />
+</div>
 
+<div style="display:flex; align-items:flex-start; gap:16px; margin-top:16px;">
+<img src="figs/NSF logo.png" height="64" />
+<span style="font-size:11px; color:#45555b; white-space:nowrap;">This work was supported in part by the U.S. National Science Foundation through IRIS-HEP (NSF OAC-1836650, OAC-1450377, OAC-2103945, PHY-2121686, PHY-2323298)</span>
+</div>
 
----
-
-## Example 1 — introspection: see the fused plan
-
-`fusion_stats()` and `visualize(fused=True)` make the compiler's decision visible
-— good for a "how it works" slide.
-
-```python
-la = ak.cuda.lazy(arr)
-t  = la * 2 + 1
-pipeline = t.filter(t > 5)
-
-pipeline.fusion_stats()
-# -> {'elementwise_before': 3, 'fused_regions': 2, 'materialized': 7}
-
-print(pipeline.visualize(fused=True))
-# FilterNode(op=filter)
-#   Input:
-#     FusedNode(leaves=3, expr='(($0 * $1) + $2)')      <- scale+shift, one kernel
-#   Condition/Mask:
-#     FusedNode(leaves=2, expr='($0 > $1)')             <- compare, one kernel
-```
-
-Fusion collapses the element-wise regions; the structural `filter`
-stays a boundary. The shared `t = la*2+1` is computed **once** and reused by both
-the filter input and the condition (single-use fusion = free CSE).
-
----
-
-## Example 2 — fusion is transparent (debug mode)
-
-`fuse=True` (default) and `fuse=False` are numerically identical; the no-fuse
-path keeps every intermediate visible for debugging.
-
-```python
-expr = (ak.cuda.lazy(arr) * 2 + 1) * 3
-
-expr.compute(fuse=True)    # one fused kernel
-expr.compute(fuse=False)   # per-op interpreter — identical result
-# both -> [[9, 15, 21], [27, 33], [39, 45, 51, 57]]
-```
-
-Fusion is a fast path, never a correctness dependency — anything it
-can't fuse (strings, regular/indexed layouts, mixed backends) falls back to the
-eager path automatically, with the same answer.
-
----
-
-## Numbers to quote (all measured, all in-repo)
-
-- **32 op chain → 1 kernel** (`fusion_stats`, nsys `cuda_gpu_kern_sum`).
-- **~90× on A100** at depth-16 (`bench_lazy_fusion_results.md`: 90.68× / 89.98×).
-- **Fused time flat**: 0.19 ms (2 ops) → 0.38 ms (32 ops); eager 2.2 → 34 ms.
-- **Size-independent on GPU** (200k and 2M speedups coincide); CPU win shrinks
-  with size (8.4× → 2.9×) because CPU is dispatch-bound, GPU is launch-bound.
 
