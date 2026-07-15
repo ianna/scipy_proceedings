@@ -995,9 +995,6 @@ binary_transform(d_in1=muons1, d_in2=muons2,
 </div>
 </div>
 
-
-
-
 ---
 
 ## Awkward Array: present and future
@@ -1166,23 +1163,79 @@ Key observation
 
 ---
 
+
+<!-- _class: challenge -->
+
+## The future
+
 <div class="challenge-question">
 
 High-performance GPU programming becomes accessible to scientific Python users.
 
 </div>
 
+<style>
+section.challenge {
+  display: flex;
+  flex-direction: column;
+  justify-content: center !important;
+  align-items: center;
+  text-align: center;
+}
+
+section.challenge h1 {
+  margin-bottom: 48px;
+}
+
+.challenge-question {
+  max-width: 980px;
+  font-size: 42px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: #123f4d;
+}
+</style>
+
+
 ---
 
 ## Conclusions
 
-- One program, not many kernels — 32 ops → 1 kernel, ~90× faster.
+- <span class="cur">One program, not many kernels — 32 ops → 1 kernel, ~90× faster.</span>
 
-- Python replaced CUDA C++ — and won.
+---
 
-- GPU‑first design sped up CPU too (~4×).
 
-- Awkward API unchanged — no kernels, no memory management.
+## Conclusions
+
+- <span class="past">One program, not many kernels — 32 ops → 1 kernel, ~90× faster.</span>
+
+- <span class="cur">Python replaced CUDA C++ — and won.</span>
+
+---
+
+
+## Conclusions
+
+- <span class="past">One program, not many kernels — 32 ops → 1 kernel, ~90× faster.</span>
+
+- <span class="past">Python replaced CUDA C++ — and won.</span>
+
+- <span class="cur"> GPU‑first design sped up CPU too (~4×).</span>
+
+
+---
+
+## Conclusions
+
+- <span class="past">One program, not many kernels — 32 ops → 1 kernel, ~90× faster.</span>
+
+- <span class="past">Python replaced CUDA C++ — and won.</span>
+
+- <span class="past"> GPU‑first design sped up CPU too (~4×).</span>
+
+- <span class="cur">Awkward API unchanged — no kernels, no memory management.</span>
+
 ---
 
 ## Thank You
@@ -1248,30 +1301,9 @@ expr.compute(fuse=False)   # per-op interpreter — identical result
 # both -> [[9, 15, 21], [27, 33], [39, 45, 51, 57]]
 ```
 
-lazy_fusion_reduce.png
-
 Fusion is a fast path, never a correctness dependency — anything it
 can't fuse (strings, regular/indexed layouts, mixed backends) falls back to the
 eager path automatically, with the same answer.
-
----
-
-## Example 3 — transform + reduction in one kernel
-
-The map fuses *into* the reduction — no intermediate buffer (this is what the
-"parents → offsets → segmented_reduce" slide sets up).
-
-```python
-la = ak.cuda.lazy(arr)
-total = (la * 2 + 1).sum()      # per-sublist sum of the scaled values
-total.compute(fuse=True)        # folded map -> segmented_reduce, one kernel
-```
-<div>
-
-![w:880](figs/lazy_fusion_reduce.png)
-</div>
-
-The folded-op reduction stays flat at ~0.18 ms as the map grows, while separate map+reduce scales with chain length.
 
 ---
 
@@ -1283,4 +1315,3 @@ The folded-op reduction stays flat at ~0.18 ms as the map grows, while separate 
 - **Size-independent on GPU** (200k and 2M speedups coincide); CPU win shrinks
   with size (8.4× → 2.9×) because CPU is dispatch-bound, GPU is launch-bound.
 
----
