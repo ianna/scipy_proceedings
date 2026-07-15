@@ -1145,21 +1145,44 @@ One CUDA Kernel
 
 ## Performance
 
-*(Insert benchmark figures)*
 
-Suggested plots
+- Runtime vs dataset size ![w:880](figs/lazy_ir_runtime_vs_size.png)
 
-- Runtime vs dataset size
 
-- GPU speedup
+---
 
-- Kernel launch count
+## Performance
 
-- Memory traffic
+- Runtime vs dataset size 
+
+- GPU speedup ![w:880](figs/lazy_ir_gpu_speedup.png)
+
+---
+
+## Performance
+
+- Runtime vs dataset size 
+
+- GPU speedup 
+
+- Kernel launch count ![w:880](figs/lazy_ir_kernel_launches.png)
+
+---
+
+## Performance
+
+- Runtime vs dataset size 
+
+- GPU speedup 
+
+- Kernel launch count 
+
+- Memory traffic ![w:880](figs/lazy_ir_memory_traffic.png)
 
 Key observation
 
 > Fusion becomes increasingly beneficial as workloads grow.
+
 
 ---
 
